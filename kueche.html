@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Küchen-Bons</title>
+<style>
+  :root {
+    --bg: #111418; --karte: #1d232b; --karte-rand: #2c3540; --text: #f2f4f7; --leise: #8a96a6;
+    --gruen: #3ecf6e; --orange: #ffb020; --rot: #ff4d4f; --blau: #3b9eff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; overflow: hidden;
+    user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  body { display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 14px; padding: 8px 14px; background: #0b0d10;
+    border-bottom: 1px solid var(--karte-rand); flex: 0 0 auto; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  .punkt { width: 12px; height: 12px; border-radius: 50%; background: var(--rot); display: inline-block; }
+  .punkt.ok { background: var(--gruen); }
+  #statusText { color: var(--leise); font-size: 14px; }
+  #versionKopf { color: var(--leise); font-size: 12px; opacity: .8; }
+  .spacer { flex: 1; }
+  #warteBadge { background: var(--orange); color: #000; font-weight: 700; padding: 4px 10px; border-radius: 999px;
+    font-size: 15px; display: none; }
+  #naechste { color: var(--leise); font-size: 15px; }
+  header button { background: var(--karte); color: var(--text); border: 1px solid var(--karte-rand);
+    border-radius: 8px; font-size: 18px; padding: 6px 12px; }
+
+  #bons { flex: 1 1 auto; display: grid; gap: 10px; padding: 10px;
+    grid-template-columns: repeat(5, 1fr); grid-template-rows: repeat(2, 1fr); min-height: 0; }
+  @media (orientation: portrait) {
+    #bons { grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(5, 1fr); }
+  }
+  .bon { background: var(--karte); border: 3px solid var(--karte-rand); border-radius: 14px; padding: 10px 12px;
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden; position: relative;
+    transition: transform .08s, opacity .2s; cursor: pointer; }
+  .bon:active { transform: scale(.97); }
+  .bon.neu { animation: blink 1s ease-in-out 3; }
+  @keyframes blink { 50% { border-color: var(--blau); background: #1f3550; } }
+  .bon.mittel { border-color: var(--orange); }
+  .bon.alt { border-color: var(--rot); }
+  .bon .kopf { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  .bon .nr { font-size: 46px; font-weight: 800; line-height: 1; }
+  .bon .zeit { font-size: 22px; color: var(--leise); font-variant-numeric: tabular-nums; }
+  .bon.mittel .zeit { color: var(--orange); }
+  .bon.alt .zeit { color: var(--rot); font-weight: 700; }
+  .bon ul { list-style: none; margin: 8px 0 0; padding: 0; overflow: hidden; flex: 1; min-height: 0; font-size: 38px; }
+  .bon li { font-size: 1em; line-height: 1.15; padding: .12em 0; overflow-wrap: normal; hyphens: manual;
+    -webkit-touch-callout: none; border-radius: 6px; transition: background .15s; border-top: 1px solid var(--karte-rand); }
+  .bon li.drueckt { background: #2d4a6b; }
+  .bon li.raus { font-size: .6em; opacity: .4; text-decoration: line-through; text-decoration-thickness: 3px; }
+  .bon.alleraus { border-color: var(--gruen); }
+  .bon .allesraus { display: none; background: var(--gruen); color: #000; font-weight: 800; font-size: 18px;
+    text-align: center; border-radius: 8px; padding: 4px; margin-top: 6px; flex: 0 0 auto; }
+  .bon.alleraus .allesraus { display: block; }
+  .bon li .menge { font-weight: 800; margin-right: 6px; }
+  .bon li .notiz { display: block; font-size: .62em; color: var(--orange); }
+  .bon .mehr { display: none; background: var(--orange); color: #000; font-weight: 800; font-size: 18px;
+    text-align: center; border-radius: 8px; padding: 4px; margin-top: 6px; flex: 0 0 auto; }
+  .bon.voll .mehr { display: block; }
+  .bon .test { position: absolute; right: 8px; bottom: 6px; font-size: 12px; color: var(--leise);
+    border: 1px solid var(--leise); border-radius: 4px; padding: 0 4px; }
+  .leer { grid-column: 1 / -1; grid-row: 1 / -1; display: flex; align-items: center; justify-content: center;
+    color: var(--leise); font-size: 24px; }
+
+  #undo { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); background: #2a323d;
+    border: 1px solid var(--karte-rand); border-radius: 12px; padding: 10px 14px; display: none;
+    align-items: center; gap: 16px; font-size: 18px; box-shadow: 0 6px 24px rgba(0,0,0,.5); }
+  #undo button { background: var(--blau); color: #fff; border: 0; border-radius: 8px; font-size: 18px;
+    padding: 8px 14px; font-weight: 700; }
+
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; }
+  .overlay .box { background: var(--karte); border: 1px solid var(--karte-rand); border-radius: 14px; padding: 20px;
+    width: min(440px, 92vw); display: flex; flex-direction: column; gap: 14px; }
+  .overlay h2 { margin: 0; font-size: 20px; }
+  .overlay label { font-size: 16px; color: var(--leise); }
+  .overlay .zeile { display: flex; gap: 8px; }
+  .overlay input { flex: 1; font-size: 22px; padding: 8px; border-radius: 8px; border: 1px solid var(--karte-rand);
+    background: var(--bg); color: var(--text); }
+  .overlay button { font-size: 17px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--karte-rand);
+    background: var(--bg); color: var(--text); }
+  .overlay button.primaer { background: var(--blau); border-color: var(--blau); color: #fff; font-weight: 700; }
+  .overlay button.gefahr { color: var(--rot); }
+  .overlay .fehler { color: var(--rot); font-size: 14px; word-break: break-word; }
+  .overlay .version { color: var(--leise); font-size: 12px; }
+
+  .aktuell { font-size: 16px; color: var(--leise); }
+  .aktuell b { color: var(--text); font-size: 22px; }
+  .pinpunkte { text-align: center; font-size: 30px; letter-spacing: 8px; min-height: 42px; }
+  .pinpunkte.falsch { color: var(--rot); animation: wackeln .4s; }
+  @keyframes wackeln { 25% { transform: translateX(-10px); } 75% { transform: translateX(10px); } }
+  .tasten { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .overlay .tasten button { font-size: 26px; padding: 14px 0; }
+
+  #tonHinweis { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center;
+    justify-content: center; flex-direction: column; gap: 12px; font-size: 24px; text-align: center; padding: 20px; }
+  #tonHinweis small { font-size: 16px; color: var(--leise); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bons</h1>
+  <span class="punkt" id="punkt"></span>
+  <span id="statusText">Verbinde…</span>
+  <span id="versionKopf"></span>
+  <span class="spacer"></span>
+  <span id="warteBadge"></span>
+  <span id="naechste"></span>
+  <button id="btnTon" title="Ton an/aus">🔔</button>
+  <button id="btnVoll" title="Vollbild">⛶</button>
+  <button id="btnBack">Backoffice</button>
+</header>
+
+<main id="bons"></main>
+
+<div id="undo"><span id="undoText"></span><button id="btnUndo">Rückgängig</button></div>
+
+<div id="pinBox" class="overlay">
+  <div class="box">
+    <h2>Backoffice – PIN</h2>
+    <div class="pinpunkte" id="pinPunkte"></div>
+    <div class="tasten" id="pinTasten"></div>
+    <button id="btnPinAbbruch">Abbrechen</button>
+  </div>
+</div>
+
+<div id="einst" class="overlay">
+  <div class="box">
+    <h2>Backoffice</h2>
+    <div class="aktuell">Nächste Nummer aktuell: <b id="aktNr">–</b></div>
+    <label for="inNr">Neue Startnummer für heute</label>
+    <div class="zeile">
+      <input id="inNr" type="number" inputmode="numeric">
+      <button class="primaer" id="btnNr">Setzen</button>
+    </div>
+    <button id="btnTest">Testbon erzeugen</button>
+    <button class="gefahr" id="btnLeeren">Alle Bons als erledigt markieren</button>
+    <div class="fehler" id="fehlerText"></div>
+    <div class="version" id="versionText"></div>
+    <button id="btnSchliessen">Schließen</button>
+  </div>
+</div>
+
+<div id="tonHinweis">
+  Tippen zum Starten
+  <small>(aktiviert den Ton für neue Bestellungen)</small>
+</div>
+
+<script>
+'use strict';
+const DISPLAY_VERSION = '1.4.1';
+const LANGDRUCK_MS = 750;
+const TIPP_MAX_MS = 300;    // nur kürzere Tipps schließen den ganzen Bon ab  // so lange drücken, um ein Produkt abzuhaken
+const PRODUKT_MAX_PX = 38;  // Schriftgröße Produktnamen (Standard)
+const PRODUKT_MIN_PX = 14;  // kleinste Größe, wenn ein Bon sehr voll ist
+const MAX_SICHTBAR = 10;
+const MIN_ORANGE = 5;   // ab so vielen Minuten orange
+const MIN_ROT = 8;     // ab so vielen Minuten rot
+const UNDO_SEK = 8;
+
+let zustand = { offen: [], status: {} };
+let ws = null;
+let verbunden = false;
+let tonAn = true;
+let audioCtx = null;
+let undoTimer = null;
+let neueIds = new Set();
+
+const el = id => document.getElementById(id);
+
+// ---------- Verbindung ----------
+function verbinde() {
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host);
+  ws.onopen = () => { verbunden = true; zeigeStatus(); };
+  ws.onclose = () => { verbunden = false; zeigeStatus(); setTimeout(verbinde, 2000); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+  ws.onmessage = ev => {
+    let m;
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.typ === 'pinOk') { pinRichtig(); return; }
+    if (m.typ === 'pinFalsch') { pinFalsch(); return; }
+    if (m.typ !== 'zustand') return;
+    zustand = m;
+    if (m.neu) { neueIds.add(m.neu); piep(); setTimeout(() => neueIds.delete(m.neu), 3500); }
+    render();
+  };
+}
+function sende(obj) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+// ---------- Anzeige ----------
+function minutenSeit(ts) { return Math.floor((Date.now() - ts) / 60000); }
+function zeitText(ts) {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function zeigeStatus() {
+  const s = zustand.status || {};
+  const ok = verbunden && s.zettleOk;
+  el('punkt').classList.toggle('ok', ok);
+  let txt;
+  if (!verbunden) txt = 'Keine Verbindung zum Server';
+  else if (s.mock) txt = 'Testmodus (ohne Zettle)';
+  else if (!s.zettleOk) txt = 'Zettle nicht erreichbar';
+  else txt = 'Zettle verbunden';
+  el('statusText').textContent = txt;
+  el('fehlerText').textContent = s.letzterFehler ? 'Letzter Fehler: ' + s.letzterFehler : '';
+  if (zustand.naechsteNr != null) {
+    el('naechste').textContent = 'Nächste Nr. ' + zustand.naechsteNr;
+    el('aktNr').textContent = zustand.naechsteNr;
+  }
+  const versionen = 'Display v' + DISPLAY_VERSION + (zustand.version ? ' · Server v' + zustand.version : '');
+  el('versionText').textContent = versionen;
+  el('versionKopf').textContent = versionen;
+}
+
+function render() {
+  zeigeStatus();
+  const box = el('bons');
+  box.textContent = '';
+  const offen = (zustand.offen || []).slice().sort((a, b) => a.zeit - b.zeit);
+  const sichtbar = offen.slice(0, MAX_SICHTBAR);
+
+  if (!sichtbar.length) {
+    const d = document.createElement('div');
+    d.className = 'leer';
+    d.textContent = 'Keine offenen Bestellungen';
+    box.appendChild(d);
+  }
+
+  sichtbar.forEach(bon => {
+    const karte = document.createElement('div');
+    karte.className = 'bon';
+    karte.dataset.id = bon.id;
+    karte.dataset.zeit = bon.zeit;
+    if (neueIds.has(bon.id)) karte.classList.add('neu');
+    faerbe(karte, bon.zeit);
+
+    const kopf = document.createElement('div');
+    kopf.className = 'kopf';
+    const nr = document.createElement('span');
+    nr.className = 'nr';
+    nr.textContent = bon.nr;
+    const zeit = document.createElement('span');
+    zeit.className = 'zeit';
+    zeit.textContent = zeitText(bon.zeit);
+    kopf.append(nr, zeit);
+
+    const liste = document.createElement('ul');
+    bon.positionen.forEach((p, i) => {
+      const li = document.createElement('li');
+      if (p.raus) li.classList.add('raus');
+      langDruck(li, bon, i);
+      const menge = document.createElement('span');
+      menge.className = 'menge';
+      menge.textContent = p.menge + '×';
+      li.append(menge, document.createTextNode(p.name));
+      if (p.notiz) {
+        const n = document.createElement('span');
+        n.className = 'notiz';
+        n.textContent = p.notiz;
+        li.appendChild(n);
+      }
+      liste.appendChild(li);
+    });
+
+    const mehr = document.createElement('div');
+    mehr.className = 'mehr';
+    const allesRaus = document.createElement('div');
+    allesRaus.className = 'allesraus';
+    allesRaus.textContent = '✓ Alles raus';
+    karte.append(kopf, liste, mehr, allesRaus);
+    pruefeAllesRaus(karte, bon);
+    if (bon.test) {
+      const t = document.createElement('span');
+      t.className = 'test';
+      t.textContent = 'TEST';
+      karte.appendChild(t);
+    }
+    let druckStart = 0;
+    karte.addEventListener('pointerdown', () => { druckStart = Date.now(); });
+    karte.addEventListener('click', () => {
+      if (klickSperre) { klickSperre = false; return; }    // Klick nach Langdruck ignorieren
+      if (Date.now() - druckStart > TIPP_MAX_MS) return;   // zu lange gehalten: kein Abschluss
+      erledigt(bon);
+    });
+    box.appendChild(karte);
+  });
+
+  document.querySelectorAll('.bon').forEach(passeSchriftAn);
+
+  const rest = offen.length - sichtbar.length;
+  el('warteBadge').style.display = rest > 0 ? 'inline-block' : 'none';
+  el('warteBadge').textContent = '+' + rest + ' wartend';
+}
+
+// ---------- Einzelne Produkte per Langdruck abhaken ----------
+let klickSperre = false;
+function pruefeAllesRaus(karte, bon) {
+  karte.classList.toggle('alleraus', bon.positionen.length > 0 && bon.positionen.every(p => p.raus));
+}
+function langDruck(li, bon, i) {
+  let timer = null, startX = 0, startY = 0;
+  const abbrechen = () => { clearTimeout(timer); timer = null; li.classList.remove('drueckt'); };
+  li.addEventListener('pointerdown', e => {
+    startX = e.clientX; startY = e.clientY;
+    li.classList.add('drueckt');
+    timer = setTimeout(() => {
+      timer = null;
+      li.classList.remove('drueckt');
+      klickSperre = true;
+      setTimeout(() => { klickSperre = false; }, 800);
+      try { if (navigator.vibrate) navigator.vibrate(40); } catch (err) {}
+      const neu = !bon.positionen[i].raus;
+      bon.positionen[i].raus = neu;
+      li.classList.toggle('raus', neu);
+      const karte = li.closest('.bon');
+      pruefeAllesRaus(karte, bon);
+      passeSchriftAn(karte);
+      sende({ typ: 'position', id: bon.id, index: i, raus: neu });
+    }, LANGDRUCK_MS);
+  });
+  li.addEventListener('pointermove', e => {
+    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 12) abbrechen();
+  });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => li.addEventListener(ev, abbrechen));
+  li.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+// Schrift so lange verkleinern, bis alle Produkte in die Kachel passen
+function passeSchriftAn(karte) {
+  const ul = karte.querySelector('ul');
+  let px = PRODUKT_MAX_PX;
+  ul.style.fontSize = px + 'px';
+  while (px > PRODUKT_MIN_PX && (ul.scrollHeight > ul.clientHeight + 1 || ul.scrollWidth > ul.clientWidth + 1)) {
+    px -= 2;
+    ul.style.fontSize = px + 'px';
+  }
+  // Passt es selbst in kleinster Schrift nicht: verdeckte Positionen zählen und Hinweis zeigen
+  karte.classList.remove('voll');
+  if (ul.scrollHeight > ul.clientHeight + 1) {
+    karte.classList.add('voll');
+    const grenze = ul.getBoundingClientRect().bottom;
+    const versteckt = [...ul.children].filter(li => li.getBoundingClientRect().bottom > grenze + 1).length;
+    karte.querySelector('.mehr').textContent = '+' + versteckt + ' weitere Positionen';
+  }
+}
+let resizeTimer = null;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
+
+function faerbe(karte, ts) {
+  const min = minutenSeit(ts);
+  karte.classList.toggle('alt', min >= MIN_ROT);
+  karte.classList.toggle('mittel', min >= MIN_ORANGE && min < MIN_ROT);
+}
+
+// Uhr und Farben jede Sekunde aktualisieren, ohne alles neu zu bauen
+setInterval(() => {
+  document.querySelectorAll('.bon').forEach(k => {
+    const ts = Number(k.dataset.zeit);
+    k.querySelector('.zeit').textContent = zeitText(ts);
+    faerbe(k, ts);
+  });
+}, 1000);
+
+// ---------- Aktionen ----------
+function erledigt(bon) {
+  sende({ typ: 'erledigt', id: bon.id });
+  el('undoText').textContent = '#' + bon.nr + ' erledigt';
+  el('undo').style.display = 'flex';
+  clearTimeout(undoTimer);
+  undoTimer = setTimeout(() => { el('undo').style.display = 'none'; }, UNDO_SEK * 1000);
+}
+el('btnUndo').addEventListener('click', () => {
+  sende({ typ: 'rueckgaengig' });
+  el('undo').style.display = 'none';
+  clearTimeout(undoTimer);
+});
+
+// ---------- Ton ----------
+function piep() {
+  if (!tonAn || !audioCtx) return;
+  try {
+    const t = audioCtx.currentTime;
+    [0, 0.18].forEach((off, i) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.frequency.value = i ? 1320 : 880;
+      g.gain.setValueAtTime(0.0001, t + off);
+      g.gain.exponentialRampToValueAtTime(0.4, t + off + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + off + 0.16);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t + off);
+      o.stop(t + off + 0.18);
+    });
+  } catch (e) {}
+}
+el('tonHinweis').addEventListener('click', () => {
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume();
+  } catch (e) {}
+  el('tonHinweis').style.display = 'none';
+  wachHalten();
+});
+el('btnTon').addEventListener('click', () => {
+  tonAn = !tonAn;
+  el('btnTon').textContent = tonAn ? '🔔' : '🔕';
+  if (tonAn) piep();
+});
+
+// ---------- Bildschirm wach halten ----------
+async function wachHalten() {
+  try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) wachHalten(); });
+
+// ---------- Backoffice mit PIN ----------
+let pinEingabe = '';
+let backofficePin = null;   // nur solange das Backoffice offen ist
+
+function zeigePunkte() {
+  el('pinPunkte').classList.remove('falsch');
+  el('pinPunkte').textContent = '●'.repeat(pinEingabe.length) || ' ';
+}
+['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK'].forEach(t => {
+  const b = document.createElement('button');
+  b.textContent = t;
+  if (t === 'OK') b.className = 'primaer';
+  b.addEventListener('click', () => {
+    if (t === '⌫') pinEingabe = pinEingabe.slice(0, -1);
+    else if (t === 'OK') { if (pinEingabe) sende({ typ: 'pinPruefen', pin: pinEingabe }); return; }
+    else if (pinEingabe.length < 10) pinEingabe += t;
+    zeigePunkte();
+  });
+  el('pinTasten').appendChild(b);
+});
+
+function pinRichtig() {
+  backofficePin = pinEingabe;
+  pinEingabe = '';
+  el('pinBox').style.display = 'none';
+  el('inNr').value = '';
+  el('inNr').min = zustand.nrMin; el('inNr').max = zustand.nrMax;
+  el('inNr').placeholder = zustand.nrMin + '–' + zustand.nrMax;
+  el('einst').style.display = 'flex';
+}
+function pinFalsch() {
+  if (el('einst').style.display === 'flex') {   // Server hat eine Aktion abgelehnt
+    schliesseBackoffice();
+    alert('PIN ungültig – bitte erneut anmelden.');
+    return;
+  }
+  pinEingabe = '';
+  el('pinPunkte').textContent = 'Falsche PIN';
+  el('pinPunkte').classList.add('falsch');
+  setTimeout(zeigePunkte, 1200);
+}
+function schliesseBackoffice() {
+  backofficePin = null;
+  el('einst').style.display = 'none';
+}
+
+el('btnBack').addEventListener('click', () => {
+  if (!verbunden) { alert('Keine Verbindung zum Server.'); return; }
+  pinEingabe = '';
+  zeigePunkte();
+  el('pinBox').style.display = 'flex';
+});
+el('btnPinAbbruch').addEventListener('click', () => { pinEingabe = ''; el('pinBox').style.display = 'none'; });
+el('btnSchliessen').addEventListener('click', schliesseBackoffice);
+el('btnNr').addEventListener('click', () => {
+  const nr = parseInt(el('inNr').value, 10);
+  if (!(nr >= zustand.nrMin && nr <= zustand.nrMax)) {
+    alert('Bitte eine Nummer von ' + zustand.nrMin + ' bis ' + zustand.nrMax + ' eingeben.');
+    return;
+  }
+  sende({ typ: 'naechsteNr', nr, pin: backofficePin });
+  schliesseBackoffice();
+});
+el('btnTest').addEventListener('click', () => { sende({ typ: 'testbon', pin: backofficePin }); schliesseBackoffice(); });
+el('btnLeeren').addEventListener('click', () => {
+  if (confirm('Wirklich alle offenen Bons als erledigt markieren?')) {
+    sende({ typ: 'alleLeeren', pin: backofficePin });
+    schliesseBackoffice();
+  }
+});
+el('btnVoll').addEventListener('click', () => {
+  const d = document.documentElement;
+  if (!document.fullscreenElement) { (d.requestFullscreen || d.webkitRequestFullscreen).call(d); }
+  else { document.exitFullscreen(); }
+});
+
+// Langes Drücken irgendwo auf der Seite: kein Chrome-Kontextmenü
+document.addEventListener('contextmenu', e => e.preventDefault());
+
+verbinde();
+render();
+</script>
+</body>
+</html>

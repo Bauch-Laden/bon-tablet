@@ -1,0 +1,12 @@
+# Abhängigkeiten (werden mit npm install neu geholt)
+node_modules/
+
+# Zugangsdaten – niemals ins Repo!
+.env
+
+# Laufzeitdaten des Servers
+state.json
+state.json.tmp
+
+# macOS
+.DS_Store

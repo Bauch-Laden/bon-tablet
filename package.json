@@ -1,0 +1,15 @@
+{
+  "name": "bon-tablet",
+  "version": "1.0.0",
+  "description": "Digitale Küchen-Bons für den Bauch-Laden Food-Truck (Zettle)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test-modus": "ZETTLE_MOCK=1 node server.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "ws": "^8.18.0"
+  }
+}
