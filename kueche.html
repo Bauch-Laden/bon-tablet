@@ -53,6 +53,17 @@
   .bon li.drueckt { background: #2d4a6b; }
   .bon li.raus { font-size: .6em; opacity: .4; text-decoration: line-through; text-decoration-thickness: 3px; }
   .bon.alleraus { border-color: var(--gruen); }
+
+  /* Animation beim Abschließen eines Bons */
+  .bon.weg { pointer-events: none; border-color: var(--gruen); animation: bonWeg .65s ease-in forwards; }
+  .bon.weg::before { content: ''; position: absolute; inset: 0; background: rgba(22, 70, 40, .88);
+    animation: bonFlaeche .65s ease-out forwards; z-index: 2; }
+  .bon.weg::after { content: '✓'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 120px; font-weight: 900; color: var(--gruen); z-index: 3; animation: bonHaken .65s ease-out forwards; }
+  @keyframes bonFlaeche { 0% { opacity: 0; } 25%, 100% { opacity: 1; } }
+  @keyframes bonHaken { 0% { opacity: 0; transform: scale(.3); } 35% { opacity: 1; transform: scale(1.2); }
+    55%, 100% { opacity: 1; transform: scale(1); } }
+  @keyframes bonWeg { 0%, 55% { transform: none; opacity: 1; } 100% { transform: scale(.82) translateY(-24px); opacity: 0; } }
   .bon .allesraus { display: none; background: var(--gruen); color: #000; font-weight: 800; font-size: 18px;
     text-align: center; border-radius: 8px; padding: 4px; margin-top: 6px; flex: 0 0 auto; }
   .bon.alleraus .allesraus { display: block; }
@@ -151,14 +162,15 @@
 
 <script>
 'use strict';
-const DISPLAY_VERSION = '1.4.1';
+const DISPLAY_VERSION = '1.5.0';
+const WEG_ANIM_MS = 650;   // Dauer der Animation beim Abschließen eines Bons
 const LANGDRUCK_MS = 750;
 const TIPP_MAX_MS = 300;    // nur kürzere Tipps schließen den ganzen Bon ab  // so lange drücken, um ein Produkt abzuhaken
 const PRODUKT_MAX_PX = 38;  // Schriftgröße Produktnamen (Standard)
 const PRODUKT_MIN_PX = 14;  // kleinste Größe, wenn ein Bon sehr voll ist
 const MAX_SICHTBAR = 10;
 const MIN_ORANGE = 5;   // ab so vielen Minuten orange
-const MIN_ROT = 8;     // ab so vielen Minuten rot
+const MIN_ROT = 8;      // ab so vielen Minuten rot
 const UNDO_SEK = 8;
 
 let zustand = { offen: [], status: {} };
@@ -167,6 +179,8 @@ let verbunden = false;
 let tonAn = true;
 let audioCtx = null;
 let undoTimer = null;
+const ausblendend = new Map();  // Bon-ID -> Timer, solange die Animation läuft
+let letzterErledigt = null;
 let neueIds = new Set();
 
 const el = id => document.getElementById(id);
@@ -240,6 +254,7 @@ function render() {
     karte.dataset.id = bon.id;
     karte.dataset.zeit = bon.zeit;
     if (neueIds.has(bon.id)) karte.classList.add('neu');
+    if (ausblendend.has(bon.id)) karte.classList.add('weg');
     faerbe(karte, bon.zeit);
 
     const kopf = document.createElement('div');
@@ -288,7 +303,7 @@ function render() {
     karte.addEventListener('click', () => {
       if (klickSperre) { klickSperre = false; return; }    // Klick nach Langdruck ignorieren
       if (Date.now() - druckStart > TIPP_MAX_MS) return;   // zu lange gehalten: kein Abschluss
-      erledigt(bon);
+      erledigt(bon, karte);
     });
     box.appendChild(karte);
   });
@@ -370,15 +385,29 @@ setInterval(() => {
 }, 1000);
 
 // ---------- Aktionen ----------
-function erledigt(bon) {
-  sende({ typ: 'erledigt', id: bon.id });
+function erledigt(bon, karte) {
+  if (ausblendend.has(bon.id)) return;
+  karte.classList.add('weg');
+  try { if (navigator.vibrate) navigator.vibrate(30); } catch (err) {}
+  const timer = setTimeout(() => {
+    ausblendend.delete(bon.id);
+    sende({ typ: 'erledigt', id: bon.id });
+  }, WEG_ANIM_MS);
+  ausblendend.set(bon.id, timer);
+  letzterErledigt = bon.id;
   el('undoText').textContent = '#' + bon.nr + ' erledigt';
   el('undo').style.display = 'flex';
   clearTimeout(undoTimer);
   undoTimer = setTimeout(() => { el('undo').style.display = 'none'; }, UNDO_SEK * 1000);
 }
 el('btnUndo').addEventListener('click', () => {
-  sende({ typ: 'rueckgaengig' });
+  if (ausblendend.has(letzterErledigt)) {          // Animation läuft noch: einfach abbrechen
+    clearTimeout(ausblendend.get(letzterErledigt));
+    ausblendend.delete(letzterErledigt);
+    render();
+  } else {
+    sende({ typ: 'rueckgaengig' });
+  }
   el('undo').style.display = 'none';
   clearTimeout(undoTimer);
 });
