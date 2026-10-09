@@ -1,6 +1,6 @@
 # Digitale Küchen-Bons (Zettle → Tablet)
 
-Server `v1.3.0` · Display `v1.4.1`
+Server `v1.3.1` · Display `v1.5.0`
 
 ## 1. Test auf dem MacBook
 
@@ -50,7 +50,7 @@ Nach einem Neustart des Tablets öffnest du Termux und führst Schritt 4 erneut 
 
 ## Bedienung
 
-- **Bon kurz antippen** = ganzer Bon erledigt. Wer länger hält, ohne ein Produkt abzuhaken, löst nichts aus. Unten erscheint 8 Sekunden lang „Rückgängig“.
+- **Bon kurz antippen** = ganzer Bon erledigt (grüner Haken, dann verschwindet die Kachel). Wer länger hält, ohne ein Produkt abzuhaken, löst nichts aus. Unten erscheint 8 Sekunden lang „Rückgängig“.
 - **Produkt lange drücken** (¾ Sekunde) = dieses Produkt ist raus (durchgestrichen). Nochmal lange drücken hebt es auf. Sind alle Produkte raus, wird die Kachel grün („✓ Alles raus“) und kann weggetippt werden.
 - **Farben:** Ab 5 Minuten wird der Rand orange, ab 8 Minuten rot.
 - **Schrift:** Produktnamen sind groß; bei vollen Bons wird die Schrift auf der Kachel automatisch kleiner. Passt es trotzdem nicht, erscheint „+N weitere Positionen“. Tablet am besten quer aufstellen.

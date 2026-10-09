@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 
-const SERVER_VERSION = '1.3.0';
+const SERVER_VERSION = '1.3.1';
 
 // ---------- Konfiguration (.env) ----------
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -200,10 +200,7 @@ async function pollSchleife() {
 }
 
 // ---------- Testmodus ohne Zettle ----------
-const TEST_ARTIKEL = [
-  'Falafel-Wrap', 'Halloumi-Burger', 'Pommes', 'Süßkartoffel-Pommes',
-  'Wedges', 'Veggie-Bowl', 'Linsensuppe', 'Kumpir'
-];
+const TEST_ARTIKEL = [1, 2, 3, 4, 5, 6, 7, 8].map(n => 'Testprodukt ' + n);
 function testBon() {
   const anzahl = 1 + Math.floor(Math.random() * 3);
   const positionen = [];
@@ -211,7 +208,7 @@ function testBon() {
     positionen.push({
       name: TEST_ARTIKEL[Math.floor(Math.random() * TEST_ARTIKEL.length)],
       menge: 1 + Math.floor(Math.random() * 2),
-      notiz: Math.random() < 0.2 ? 'ohne Zwiebeln' : ''
+      notiz: Math.random() < 0.2 ? 'Testnotiz' : ''
     });
   }
   neuerBon(positionen, Date.now(), 'test-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), true);
