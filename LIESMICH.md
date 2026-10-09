@@ -1,6 +1,6 @@
 # Digitale Küchen-Bons (Zettle → Tablet)
 
-Server `v1.2.0` · Display `v1.4.0`
+Server `v1.3.0` · Display `v1.4.1`
 
 ## 1. Test auf dem MacBook
 
@@ -52,11 +52,11 @@ Nach einem Neustart des Tablets öffnest du Termux und führst Schritt 4 erneut 
 
 - **Bon kurz antippen** = ganzer Bon erledigt. Wer länger hält, ohne ein Produkt abzuhaken, löst nichts aus. Unten erscheint 8 Sekunden lang „Rückgängig“.
 - **Produkt lange drücken** (¾ Sekunde) = dieses Produkt ist raus (durchgestrichen). Nochmal lange drücken hebt es auf. Sind alle Produkte raus, wird die Kachel grün („✓ Alles raus“) und kann weggetippt werden.
-- **Farben:** Ab 8 Minuten wird der Rand orange, ab 15 Minuten rot.
+- **Farben:** Ab 5 Minuten wird der Rand orange, ab 8 Minuten rot.
 - **Schrift:** Produktnamen sind groß; bei vollen Bons wird die Schrift auf der Kachel automatisch kleiner. Passt es trotzdem nicht, erscheint „+N weitere Positionen“. Tablet am besten quer aufstellen.
 - **Backoffice** (PIN `111222`): Startnummer für den Tag setzen, Testbon erzeugen, alle Bons leeren. Die PIN prüft der Server. Ändern kannst du sie in `.env` über `BACKOFFICE_PIN`.
 - **🔔** schaltet den Ton an oder aus.
 - Nach 99 springt die Nummer wieder auf 1.
 - Getränke usw. blendest du über `AUSBLENDEN` in `.env` aus. Es reicht ein Teil des Namens, mehrere Einträge kommagetrennt.
 - Offene Bons und die Nummer bleiben bei einem Neustart des Servers erhalten (`state.json`).
-- Das Tablet braucht Internet, z. B. über den Handy-Hotspot.
+- Das Tablet braucht Internet, z. B. über den Handy-Hotspot. Kurze Aussetzer überbrückt der Server; rot wird die Anzeige erst nach 30 Sekunden ohne Zettle-Verbindung.

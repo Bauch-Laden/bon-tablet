@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 
-const SERVER_VERSION = '1.2.0';
+const SERVER_VERSION = '1.3.0';
 
 // ---------- Konfiguration (.env) ----------
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -39,6 +39,7 @@ let state = {
   gesehen: []     // Purchase-UUIDs, um Duplikate zu vermeiden, max. 500
 };
 const status = { zettleOk: false, letzterFehler: null, letzterPoll: null };
+const ROT_NACH_MS = 30000;   // erst nach so langer Störung wird die Anzeige rot
 
 function ladeState() {
   try {
@@ -106,6 +107,21 @@ function verarbeitePurchase(p) {
 }
 
 // ---------- Zettle ----------
+// Netzwerkfehler ("fetch failed") bis zu zweimal sofort wiederholen
+async function netzFetch(url, opts) {
+  let letzter;
+  for (let versuch = 0; versuch < 3; versuch++) {
+    try {
+      return await fetch(url, opts);
+    } catch (e) {
+      letzter = e;
+      await new Promise(r => setTimeout(r, 400 * (versuch + 1)));
+    }
+  }
+  const ursache = letzter && letzter.cause ? (letzter.cause.code || letzter.cause.message) : '';
+  throw new Error('Netzwerk: ' + (letzter ? letzter.message : 'unbekannt') + (ursache ? ' (' + ursache + ')' : ''));
+}
+
 let token = null;
 let tokenAblauf = 0;
 
@@ -116,7 +132,7 @@ async function holeToken(erzwingen) {
     client_id: CLIENT_ID,
     assertion: API_KEY
   });
-  const r = await fetch('https://oauth.zettle.com/token', {
+  const r = await netzFetch('https://oauth.zettle.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
@@ -131,10 +147,10 @@ async function holeToken(erzwingen) {
 
 async function zettleGet(url) {
   let t = await holeToken(false);
-  let r = await fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+  let r = await netzFetch(url, { headers: { Authorization: 'Bearer ' + t } });
   if (r.status === 401) {
     t = await holeToken(true);
-    r = await fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+    r = await netzFetch(url, { headers: { Authorization: 'Bearer ' + t } });
   }
   if (!r.ok) throw new Error(`Zettle-Fehler ${r.status}: ${(await r.text()).slice(0, 200)}`);
   return r.json();
@@ -170,12 +186,16 @@ async function pollSchleife() {
     if (warVorherFehler) sendeZustand();
   } catch (e) {
     fehlerInFolge++;
-    status.zettleOk = false;
     status.letzterFehler = e.message;
-    console.error('Poll-Fehler:', e.message);
-    sendeZustand();
+    console.error(new Date().toLocaleTimeString('de-DE') + ' Poll-Fehler:', e.message);
+    // Kurze Aussetzer nicht als Störung anzeigen
+    const seitErfolg = status.letzterPoll ? Date.now() - status.letzterPoll : Infinity;
+    if (status.zettleOk && seitErfolg > ROT_NACH_MS) {
+      status.zettleOk = false;
+      sendeZustand();
+    }
   }
-  const warte = fehlerInFolge ? Math.min(30000, POLL_MS * (fehlerInFolge + 1)) : POLL_MS;
+  const warte = fehlerInFolge ? Math.min(15000, POLL_MS * (fehlerInFolge + 1)) : POLL_MS;
   setTimeout(pollSchleife, warte);
 }
 
