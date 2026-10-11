@@ -10,7 +10,7 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 
-const SERVER_VERSION = '1.5.0';
+const SERVER_VERSION = '1.6.0';
 const MAX_ERLEDIGT = 10;   // so viele erledigte Bons kann man zurückholen
 
 // ---------- Konfiguration (.env) ----------
@@ -287,6 +287,11 @@ function behandleNachricht(m, ws) {
     const anzahl = parseInt(m.rausAnzahl, 10);
     if (isNaN(anzahl)) return;
     pos.rausAnzahl = Math.max(0, Math.min(pos.menge, anzahl));
+  } else if (m.typ === 'notiz') {
+    const bon = state.offen.find(b => b.id === m.id);
+    if (!bon) return;
+    const text = String(m.text || '').trim().slice(0, 200);
+    if (text) bon.notiz = text; else delete bon.notiz;
   } else if (m.typ === 'naechsteNr') {
     const nr = parseInt(m.nr, 10);
     if (!(nr >= NR_MIN && nr <= NR_MAX)) return;

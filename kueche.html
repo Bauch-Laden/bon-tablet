@@ -50,7 +50,10 @@
   .bon ul { list-style: none; margin: 8px 0 0; padding: 0; overflow: hidden; flex: 1; min-height: 0; font-size: 38px; }
   .bon li { font-size: 1em; line-height: 1.15; padding: .12em 0; overflow-wrap: normal; hyphens: manual;
     -webkit-touch-callout: none; border-radius: 6px; transition: background .15s; border-top: 1px solid var(--karte-rand); }
-  .bon li.drueckt { background: #2d4a6b; }
+  .bon.drueckt { background: #26364a; }
+  .bon .bonnotiz { background: var(--orange); color: #000; font-weight: 700; font-size: 18px; line-height: 1.2;
+    border-radius: 6px; padding: 3px 8px; margin-top: 6px; flex: 0 0 auto; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .bon li.raus { font-size: .6em; opacity: .4; text-decoration: line-through; text-decoration-thickness: 3px; }
   .bon.alleraus { border-color: var(--gruen); }
 
@@ -106,6 +109,28 @@
   .tasten { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .overlay .tasten button { font-size: 26px; padding: 14px 0; }
 
+  /* Bearbeiten-Modus */
+  .overlay .box.edit { width: min(680px, 94vw); max-height: 92vh; overflow-y: auto; }
+  .editKopf { display: flex; align-items: baseline; gap: 14px; }
+  .editKopf .nr { font-size: 52px; font-weight: 800; line-height: 1; }
+  .editHinweis { color: var(--leise); font-size: 15px; }
+  #editListe { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  #editListe li { font-size: 30px; line-height: 1.2; padding: 12px 14px; border-radius: 10px; background: var(--bg);
+    border: 1px solid var(--karte-rand); cursor: pointer; }
+  #editListe li:active { background: #2d4a6b; }
+  #editListe li .menge { font-weight: 800; margin-right: 8px; }
+  #editListe li .notiz { display: block; font-size: 17px; color: var(--orange); }
+  #editListe li.raus { font-size: 22px; opacity: .45; text-decoration: line-through; text-decoration-thickness: 3px; }
+  #editNotiz { width: 100%; font-size: 22px; padding: 10px; border-radius: 8px; border: 1px solid var(--karte-rand);
+    background: var(--bg); color: var(--text); font-family: inherit; resize: none; user-select: text; -webkit-user-select: text; }
+  .chipReihe { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chipReihe button { font-size: 20px; padding: 10px 16px; border-radius: 999px; }
+  #notizBausteine button { background: #2a3442; font-weight: 700; }
+  #notizBausteine button.loeschen { background: var(--bg); color: var(--leise); }
+  #notizChips button { font-size: 17px; padding: 8px 12px; }
+  .chipTitel { font-size: 14px; color: var(--leise); }
+  .overlay .zeile.ende { justify-content: space-between; }
+
   #tonHinweis { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center;
     justify-content: center; flex-direction: column; gap: 12px; font-size: 24px; text-align: center; padding: 20px; }
   #tonHinweis small { font-size: 16px; color: var(--leise); }
@@ -156,6 +181,22 @@
   </div>
 </div>
 
+<div id="editBox" class="overlay">
+  <div class="box edit">
+    <div class="editKopf"><span class="nr" id="editNr"></span><span class="editHinweis">Produkt antippen = 1 Stück raus · durchgestrichen antippen = zurück</span></div>
+    <ul id="editListe"></ul>
+    <label for="editNotiz">Notiz zum Bon</label>
+    <textarea id="editNotiz" rows="2" maxlength="200" placeholder="Notiz eingeben …"></textarea>
+    <div class="chipReihe" id="notizBausteine"></div>
+    <div class="chipTitel" id="chipTitelZuletzt">Zuletzt verwendet</div>
+    <div class="chipReihe" id="notizChips"></div>
+    <div class="zeile ende">
+      <button id="btnNotizLeeren">Notiz löschen</button>
+      <button class="primaer" id="btnEditFertig">Fertig</button>
+    </div>
+  </div>
+</div>
+
 <div id="tonHinweis">
   Tippen zum Starten
   <small>(aktiviert den Ton für neue Bestellungen)</small>
@@ -163,9 +204,13 @@
 
 <script>
 'use strict';
-const DISPLAY_VERSION = '1.7.0';
+const DISPLAY_VERSION = '1.9.0';
+// Feste Notiz-Bausteine im Bearbeiten-Modus (Reihenfolge = Anzeige)
+const NOTIZ_BAUSTEINE = ['mit', 'ohne', 'ajvar', 'oliven', 'salat', 'zaziki', 'hummus', 'take-away'];
+// Nach diesen Wörtern folgt ein Leerzeichen statt eines Kommas
+const NOTIZ_VERBINDER = ['mit', 'ohne'];
 const WEG_ANIM_MS = 650;   // Dauer der Animation beim Abschließen eines Bons
-const LANGDRUCK_MS = 750;  // so lange drücken, um ein Produkt abzuhaken
+const LANGDRUCK_MS = 750;  // so lange drücken, um den Bearbeiten-Modus zu öffnen
 const TIPP_MAX_MS = 300;   // nur kürzere Tipps schließen den ganzen Bon ab
 const PRODUKT_MAX_PX = 38;  // Schriftgröße Produktnamen (Standard)
 const PRODUKT_MIN_PX = 14;  // kleinste Größe, wenn ein Bon sehr voll ist
@@ -283,7 +328,14 @@ function render() {
     const allesRaus = document.createElement('div');
     allesRaus.className = 'allesraus';
     allesRaus.textContent = '✓ Alles raus';
-    karte.append(kopf, liste, mehr, allesRaus);
+    karte.append(kopf);
+    if (bon.notiz) {
+      const n = document.createElement('div');
+      n.className = 'bonnotiz';
+      n.textContent = bon.notiz;
+      karte.appendChild(n);
+    }
+    karte.append(liste, mehr, allesRaus);
     pruefeAllesRaus(karte, bon);
     if (bon.test) {
       const t = document.createElement('span');
@@ -293,6 +345,7 @@ function render() {
     }
     let druckStart = 0;
     karte.addEventListener('pointerdown', () => { druckStart = Date.now(); });
+    langDruckAuf(karte, () => oeffneEdit(bon.id));
     karte.addEventListener('click', () => {
       if (klickSperre) { klickSperre = false; return; }    // Klick nach Langdruck ignorieren
       if (Date.now() - druckStart > TIPP_MAX_MS) return;   // zu lange gehalten: kein Abschluss
@@ -304,13 +357,14 @@ function render() {
   document.querySelectorAll('.bon').forEach(passeSchriftAn);
 
   aktualisiereUndo();
+  renderEdit();
 
   const rest = offen.length - sichtbar.length;
   el('warteBadge').style.display = rest > 0 ? 'inline-block' : 'none';
   el('warteBadge').textContent = '+' + rest + ' wartend';
 }
 
-// ---------- Einzelne Produkte per Langdruck abhaken ----------
+// ---------- Positionen ----------
 let klickSperre = false;
 function rausVon(p) {
   if (typeof p.rausAnzahl === 'number') return Math.max(0, Math.min(p.menge, p.rausAnzahl));
@@ -320,7 +374,6 @@ function positionsZeile(bon, i, anzahl, istRaus) {
   const p = bon.positionen[i];
   const li = document.createElement('li');
   if (istRaus) li.classList.add('raus');
-  langDruck(li, bon, i, istRaus ? -1 : +1);
   const menge = document.createElement('span');
   menge.className = 'menge';
   menge.textContent = anzahl + '×';
@@ -336,31 +389,143 @@ function positionsZeile(bon, i, anzahl, istRaus) {
 function pruefeAllesRaus(karte, bon) {
   karte.classList.toggle('alleraus', bon.positionen.length > 0 && bon.positionen.every(p => rausVon(p) >= p.menge));
 }
-function langDruck(li, bon, i, schritt) {
+// Langdruck auf ein Element erkennen
+function langDruckAuf(elem, aktion) {
   let timer = null, startX = 0, startY = 0;
-  const abbrechen = () => { clearTimeout(timer); timer = null; li.classList.remove('drueckt'); };
-  li.addEventListener('pointerdown', e => {
+  const abbrechen = () => { clearTimeout(timer); timer = null; elem.classList.remove('drueckt'); };
+  elem.addEventListener('pointerdown', e => {
+    if (elem.classList.contains('weg')) return;
     startX = e.clientX; startY = e.clientY;
-    li.classList.add('drueckt');
+    elem.classList.add('drueckt');
     timer = setTimeout(() => {
       timer = null;
-      li.classList.remove('drueckt');
+      elem.classList.remove('drueckt');
       klickSperre = true;
       setTimeout(() => { klickSperre = false; }, 800);
       try { if (navigator.vibrate) navigator.vibrate(40); } catch (err) {}
-      const p = bon.positionen[i];
-      const neu = Math.max(0, Math.min(p.menge, rausVon(p) + schritt));
-      p.rausAnzahl = neu;
-      sende({ typ: 'position', id: bon.id, index: i, rausAnzahl: neu });
-      render();   // Zeilen neu aufteilen (offen / abgehakt)
+      aktion();
     }, LANGDRUCK_MS);
   });
-  li.addEventListener('pointermove', e => {
+  elem.addEventListener('pointermove', e => {
     if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 12) abbrechen();
   });
-  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => li.addEventListener(ev, abbrechen));
-  li.addEventListener('contextmenu', e => e.preventDefault());
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => elem.addEventListener(ev, abbrechen));
 }
+
+// ---------- Bearbeiten-Modus ----------
+let editId = null;
+let editGeoeffnetUm = 0;
+const NOTIZ_SPEICHER = 'bonNotizenZuletzt';
+
+function zuletztNotizen() {
+  try { return JSON.parse(localStorage.getItem(NOTIZ_SPEICHER) || '[]'); } catch (e) { return []; }
+}
+function merkeNotiz(text) {
+  try {
+    const liste = [text, ...zuletztNotizen().filter(t => t !== text)].slice(0, 8);
+    localStorage.setItem(NOTIZ_SPEICHER, JSON.stringify(liste));
+  } catch (e) {}
+}
+// Baustein anhängen: nach "mit"/"ohne" mit Leerzeichen, sonst mit Komma
+function haengeAn(text) {
+  const feld = el('editNotiz');
+  const alt = feld.value.trim();
+  if (!alt) { feld.value = text; return; }
+  const letztesWort = alt.split(/[\s,]+/).pop().toLowerCase();
+  feld.value = NOTIZ_VERBINDER.includes(letztesWort) ? alt + ' ' + text : alt + ', ' + text;
+}
+// Letzten Baustein wieder entfernen
+function entferneLetzten() {
+  const feld = el('editNotiz');
+  feld.value = feld.value.trim().replace(/\S+$/, '').replace(/[\s,]+$/, '');
+}
+function zeigeChips() {
+  const bausteine = el('notizBausteine');
+  bausteine.textContent = '';
+  NOTIZ_BAUSTEINE.forEach(t => {
+    const b = document.createElement('button');
+    b.textContent = t;
+    b.addEventListener('click', () => haengeAn(t));
+    bausteine.appendChild(b);
+  });
+  const weg = document.createElement('button');
+  weg.className = 'loeschen';
+  weg.textContent = '⌫';
+  weg.title = 'Letzten Baustein entfernen';
+  weg.addEventListener('click', entferneLetzten);
+  bausteine.appendChild(weg);
+
+  const box = el('notizChips');
+  box.textContent = '';
+  // nur echte Kombinationen merken, keine einzelnen Bausteine
+  const zuletzt = zuletztNotizen().filter(t => !NOTIZ_BAUSTEINE.includes(t));
+  el('chipTitelZuletzt').style.display = zuletzt.length ? '' : 'none';
+  zuletzt.forEach(t => {
+    const b = document.createElement('button');
+    b.textContent = t;
+    b.addEventListener('click', () => haengeAn(t));
+    box.appendChild(b);
+  });
+}
+function editBon() { return (zustand.offen || []).find(b => b.id === editId); }
+
+function oeffneEdit(id) {
+  editId = id;
+  const bon = editBon();
+  if (!bon) { editId = null; return; }
+  editGeoeffnetUm = Date.now();
+  el('editNotiz').value = bon.notiz || '';
+  zeigeChips();
+  renderEdit();
+  el('editBox').style.display = 'flex';
+}
+function renderEdit() {
+  if (!editId) return;
+  const bon = editBon();
+  if (!bon) { schliesseEdit(false); return; }   // Bon wurde inzwischen erledigt
+  el('editNr').textContent = bon.nr;
+  const ul = el('editListe');
+  ul.textContent = '';
+  bon.positionen.forEach((p, i) => {
+    const raus = rausVon(p);
+    const offen = p.menge - raus;
+    if (offen > 0) ul.appendChild(editZeile(bon, i, offen, false));
+    if (raus > 0) ul.appendChild(editZeile(bon, i, raus, true));
+  });
+}
+function editZeile(bon, i, anzahl, istRaus) {
+  const li = positionsZeile(bon, i, anzahl, istRaus);
+  li.addEventListener('click', () => {
+    const p = bon.positionen[i];
+    const neu = Math.max(0, Math.min(p.menge, rausVon(p) + (istRaus ? -1 : 1)));
+    p.rausAnzahl = neu;
+    try { if (navigator.vibrate) navigator.vibrate(25); } catch (err) {}
+    sende({ typ: 'position', id: bon.id, index: i, rausAnzahl: neu });
+    render();   // Kachel und Bearbeiten-Liste aktualisieren
+  });
+  return li;
+}
+function schliesseEdit(speichern) {
+  const bon = editBon();
+  if (speichern && bon) {
+    const text = el('editNotiz').value.trim();
+    if (text !== (bon.notiz || '')) {
+      bon.notiz = text;
+      sende({ typ: 'notiz', id: bon.id, text });
+      if (text) merkeNotiz(text);
+    }
+  }
+  editId = null;
+  el('editNotiz').blur();
+  el('editBox').style.display = 'none';
+  render();
+}
+el('btnEditFertig').addEventListener('click', () => schliesseEdit(true));
+el('btnNotizLeeren').addEventListener('click', () => { el('editNotiz').value = ''; });
+el('editBox').addEventListener('click', e => {
+  // Tipp neben das Fenster schließt (nicht direkt nach dem Öffnen)
+  if (e.target === el('editBox') && Date.now() - editGeoeffnetUm > 600) schliesseEdit(true);
+});
 
 // Schrift so lange verkleinern, bis alle Produkte in die Kachel passen
 function passeSchriftAn(karte) {
