@@ -120,6 +120,7 @@
   <span class="spacer"></span>
   <span id="warteBadge"></span>
   <span id="naechste"></span>
+  <button id="btnTestKopf" title="Testbon erzeugen">Test</button>
   <button id="btnTon" title="Ton an/aus">🔔</button>
   <button id="btnVoll" title="Vollbild">⛶</button>
   <button id="btnBack">Backoffice</button>
@@ -162,10 +163,10 @@
 
 <script>
 'use strict';
-const DISPLAY_VERSION = '1.5.0';
+const DISPLAY_VERSION = '1.7.0';
 const WEG_ANIM_MS = 650;   // Dauer der Animation beim Abschließen eines Bons
-const LANGDRUCK_MS = 750;
-const TIPP_MAX_MS = 300;    // nur kürzere Tipps schließen den ganzen Bon ab  // so lange drücken, um ein Produkt abzuhaken
+const LANGDRUCK_MS = 750;  // so lange drücken, um ein Produkt abzuhaken
+const TIPP_MAX_MS = 300;   // nur kürzere Tipps schließen den ganzen Bon ab
 const PRODUKT_MAX_PX = 38;  // Schriftgröße Produktnamen (Standard)
 const PRODUKT_MIN_PX = 14;  // kleinste Größe, wenn ein Bon sehr voll ist
 const MAX_SICHTBAR = 10;
@@ -269,20 +270,12 @@ function render() {
 
     const liste = document.createElement('ul');
     bon.positionen.forEach((p, i) => {
-      const li = document.createElement('li');
-      if (p.raus) li.classList.add('raus');
-      langDruck(li, bon, i);
-      const menge = document.createElement('span');
-      menge.className = 'menge';
-      menge.textContent = p.menge + '×';
-      li.append(menge, document.createTextNode(p.name));
-      if (p.notiz) {
-        const n = document.createElement('span');
-        n.className = 'notiz';
-        n.textContent = p.notiz;
-        li.appendChild(n);
-      }
-      liste.appendChild(li);
+      const raus = rausVon(p);
+      const offen = p.menge - raus;
+      // offener Teil: Langdruck hakt 1 Stück ab
+      if (offen > 0) liste.appendChild(positionsZeile(bon, i, offen, false));
+      // abgehakter Teil: Langdruck holt 1 Stück zurück
+      if (raus > 0) liste.appendChild(positionsZeile(bon, i, raus, true));
     });
 
     const mehr = document.createElement('div');
@@ -310,6 +303,8 @@ function render() {
 
   document.querySelectorAll('.bon').forEach(passeSchriftAn);
 
+  aktualisiereUndo();
+
   const rest = offen.length - sichtbar.length;
   el('warteBadge').style.display = rest > 0 ? 'inline-block' : 'none';
   el('warteBadge').textContent = '+' + rest + ' wartend';
@@ -317,10 +312,31 @@ function render() {
 
 // ---------- Einzelne Produkte per Langdruck abhaken ----------
 let klickSperre = false;
-function pruefeAllesRaus(karte, bon) {
-  karte.classList.toggle('alleraus', bon.positionen.length > 0 && bon.positionen.every(p => p.raus));
+function rausVon(p) {
+  if (typeof p.rausAnzahl === 'number') return Math.max(0, Math.min(p.menge, p.rausAnzahl));
+  return p.raus === true ? p.menge : 0;
 }
-function langDruck(li, bon, i) {
+function positionsZeile(bon, i, anzahl, istRaus) {
+  const p = bon.positionen[i];
+  const li = document.createElement('li');
+  if (istRaus) li.classList.add('raus');
+  langDruck(li, bon, i, istRaus ? -1 : +1);
+  const menge = document.createElement('span');
+  menge.className = 'menge';
+  menge.textContent = anzahl + '×';
+  li.append(menge, document.createTextNode(p.name));
+  if (p.notiz) {
+    const n = document.createElement('span');
+    n.className = 'notiz';
+    n.textContent = p.notiz;
+    li.appendChild(n);
+  }
+  return li;
+}
+function pruefeAllesRaus(karte, bon) {
+  karte.classList.toggle('alleraus', bon.positionen.length > 0 && bon.positionen.every(p => rausVon(p) >= p.menge));
+}
+function langDruck(li, bon, i, schritt) {
   let timer = null, startX = 0, startY = 0;
   const abbrechen = () => { clearTimeout(timer); timer = null; li.classList.remove('drueckt'); };
   li.addEventListener('pointerdown', e => {
@@ -332,13 +348,11 @@ function langDruck(li, bon, i) {
       klickSperre = true;
       setTimeout(() => { klickSperre = false; }, 800);
       try { if (navigator.vibrate) navigator.vibrate(40); } catch (err) {}
-      const neu = !bon.positionen[i].raus;
-      bon.positionen[i].raus = neu;
-      li.classList.toggle('raus', neu);
-      const karte = li.closest('.bon');
-      pruefeAllesRaus(karte, bon);
-      passeSchriftAn(karte);
-      sende({ typ: 'position', id: bon.id, index: i, raus: neu });
+      const p = bon.positionen[i];
+      const neu = Math.max(0, Math.min(p.menge, rausVon(p) + schritt));
+      p.rausAnzahl = neu;
+      sende({ typ: 'position', id: bon.id, index: i, rausAnzahl: neu });
+      render();   // Zeilen neu aufteilen (offen / abgehakt)
     }, LANGDRUCK_MS);
   });
   li.addEventListener('pointermove', e => {
@@ -395,10 +409,33 @@ function erledigt(bon, karte) {
   }, WEG_ANIM_MS);
   ausblendend.set(bon.id, timer);
   letzterErledigt = bon.id;
-  el('undoText').textContent = '#' + bon.nr + ' erledigt';
+  letzterErledigtNr = bon.nr;
+  zeigeUndo();
+}
+
+// Rückgängig: jeder Druck holt den nächsten zuletzt erledigten Bon zurück (bis zu 10)
+let letzterErledigtNr = null;
+function undoText() {
+  if (ausblendend.has(letzterErledigt)) return '#' + letzterErledigtNr + ' erledigt';
+  const liste = zustand.erledigtListe || [];
+  return liste.length ? '#' + liste[0].nr + ' erledigt' : null;
+}
+function zeigeUndo() {
+  const t = undoText();
+  if (!t) { versteckeUndo(); return; }
+  el('undoText').textContent = t;
   el('undo').style.display = 'flex';
   clearTimeout(undoTimer);
-  undoTimer = setTimeout(() => { el('undo').style.display = 'none'; }, UNDO_SEK * 1000);
+  undoTimer = setTimeout(versteckeUndo, UNDO_SEK * 1000);
+}
+function versteckeUndo() {
+  el('undo').style.display = 'none';
+  clearTimeout(undoTimer);
+}
+function aktualisiereUndo() {
+  if (el('undo').style.display !== 'flex') return;
+  const t = undoText();
+  if (t) el('undoText').textContent = t; else versteckeUndo();
 }
 el('btnUndo').addEventListener('click', () => {
   if (ausblendend.has(letzterErledigt)) {          // Animation läuft noch: einfach abbrechen
@@ -408,8 +445,7 @@ el('btnUndo').addEventListener('click', () => {
   } else {
     sende({ typ: 'rueckgaengig' });
   }
-  el('undo').style.display = 'none';
-  clearTimeout(undoTimer);
+  zeigeUndo();   // Balken bleibt stehen, Text kommt mit dem nächsten Zustand
 });
 
 // ---------- Ton ----------
@@ -513,7 +549,11 @@ el('btnNr').addEventListener('click', () => {
   sende({ typ: 'naechsteNr', nr, pin: backofficePin });
   schliesseBackoffice();
 });
-el('btnTest').addEventListener('click', () => { sende({ typ: 'testbon', pin: backofficePin }); schliesseBackoffice(); });
+el('btnTest').addEventListener('click', () => { sende({ typ: 'testbon' }); schliesseBackoffice(); });
+el('btnTestKopf').addEventListener('click', () => {
+  if (!verbunden) { alert('Keine Verbindung zum Server – läuft Termux mit „bons“?'); return; }
+  sende({ typ: 'testbon' });
+});
 el('btnLeeren').addEventListener('click', () => {
   if (confirm('Wirklich alle offenen Bons als erledigt markieren?')) {
     sende({ typ: 'alleLeeren', pin: backofficePin });

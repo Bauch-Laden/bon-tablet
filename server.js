@@ -10,7 +10,8 @@ const fs = require('fs');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 
-const SERVER_VERSION = '1.3.1';
+const SERVER_VERSION = '1.5.0';
+const MAX_ERLEDIGT = 10;   // so viele erledigte Bons kann man zurückholen
 
 // ---------- Konfiguration (.env) ----------
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -22,7 +23,7 @@ const NR_MIN = parseInt(process.env.NR_MIN || '1', 10);
 const NR_MAX = parseInt(process.env.NR_MAX || '99', 10);
 const MAX_ALTER_MIN = parseInt(process.env.MAX_ALTER_MIN || '30', 10);
 const BACKOFFICE_PIN = String(process.env.BACKOFFICE_PIN || '111222');
-const GESCHUETZT = ['naechsteNr', 'testbon', 'alleLeeren'];
+const GESCHUETZT = ['naechsteNr', 'alleLeeren'];   // Testbon geht ohne PIN
 const AUSBLENDEN = (process.env.AUSBLENDEN || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
@@ -33,9 +34,10 @@ const PURCHASE_URL = 'https://purchase.izettle.com/purchases/v2';
 // ---------- Zustand ----------
 let state = {
   naechsteNr: NR_MIN,
+  testNr: 1,      // eigener Zähler für Testbons (T1, T2, …) – echte Nummern bleiben unberührt
   lastPurchaseHash: null,
   offen: [],      // { id, nr, zeit, positionen:[{name, menge, notiz}], test }
-  erledigt: [],   // zuletzt erledigte Bons (für Rückgängig), max. 20
+  erledigt: [],   // zuletzt erledigte Bons (zum Zurückholen), max. MAX_ERLEDIGT
   gesehen: []     // Purchase-UUIDs, um Duplikate zu vermeiden, max. 500
 };
 const status = { zettleOk: false, letzterFehler: null, letzterPoll: null };
@@ -45,6 +47,8 @@ function ladeState() {
   try {
     const j = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
     state = Object.assign(state, j);
+    [...state.offen, ...state.erledigt].forEach(normalisiereBon);
+    state.erledigt = state.erledigt.slice(-MAX_ERLEDIGT);
     console.log(`Zustand geladen: ${state.offen.length} offene Bons, nächste Nr. ${state.naechsteNr}`);
   } catch (e) {
     console.log('Kein gespeicherter Zustand – starte neu.');
@@ -62,6 +66,18 @@ function speichereState() {
 }
 
 // ---------- Bons ----------
+// Ältere Zustände kannten nur raus: true/false – umrechnen in eine Stückzahl
+function normalisiereBon(bon) {
+  (bon.positionen || []).forEach(p => {
+    if (typeof p.rausAnzahl !== 'number') p.rausAnzahl = p.raus === true ? p.menge : 0;
+    delete p.raus;
+  });
+}
+function legeAbInErledigt(bons) {
+  const jetzt = Date.now();
+  bons.forEach(b => { b.erledigtUm = jetzt; state.erledigt.push(b); });
+  state.erledigt = state.erledigt.slice(-MAX_ERLEDIGT);
+}
 function nimmNummer() {
   const nr = state.naechsteNr;
   state.naechsteNr = nr >= NR_MAX ? NR_MIN : nr + 1;
@@ -69,7 +85,15 @@ function nimmNummer() {
 }
 
 function neuerBon(positionen, zeit, id, test) {
-  const bon = { id, nr: nimmNummer(), zeit, positionen, test: !!test };
+  positionen.forEach(p => { p.rausAnzahl = 0; });
+  let nr;
+  if (test) {
+    nr = 'T' + (state.testNr || 1);
+    state.testNr = (state.testNr || 1) >= 99 ? 1 : (state.testNr || 1) + 1;
+  } else {
+    nr = nimmNummer();
+  }
+  const bon = { id, nr, zeit, positionen, test: !!test };
   state.offen.push(bon);
   speichereState();
   console.log(`Neuer Bon #${bon.nr}: ${positionen.map(p => p.menge + 'x ' + p.name).join(', ')}`);
@@ -221,7 +245,7 @@ function zustandNachricht(extra) {
     typ: 'zustand',
     version: SERVER_VERSION,
     offen: state.offen,
-    letzteErledigt: state.erledigt.length ? state.erledigt[state.erledigt.length - 1] : null,
+    erledigtListe: state.erledigt.slice().reverse(),
     naechsteNr: state.naechsteNr,
     nrMin: NR_MIN,
     nrMax: NR_MAX,
@@ -247,19 +271,22 @@ function behandleNachricht(m, ws) {
     const i = state.offen.findIndex(b => b.id === m.id);
     if (i === -1) return;
     const [bon] = state.offen.splice(i, 1);
-    bon.erledigtUm = Date.now();
-    state.erledigt.push(bon);
-    if (state.erledigt.length > 20) state.erledigt = state.erledigt.slice(-20);
-  } else if (m.typ === 'rueckgaengig') {
-    const bon = state.erledigt.pop();
-    if (!bon) return;
+    legeAbInErledigt([bon]);
+  } else if (m.typ === 'wiederherstellen' || m.typ === 'rueckgaengig') {
+    // mit id: genau diesen Bon zurückholen, ohne id: den zuletzt erledigten
+    const i = m.id ? state.erledigt.findIndex(b => b.id === m.id) : state.erledigt.length - 1;
+    if (i < 0) return;
+    const [bon] = state.erledigt.splice(i, 1);
     delete bon.erledigtUm;
     state.offen.push(bon);
     state.offen.sort((a, b) => a.zeit - b.zeit);
   } else if (m.typ === 'position') {
     const bon = state.offen.find(b => b.id === m.id);
-    if (!bon || !bon.positionen[m.index]) return;
-    bon.positionen[m.index].raus = !!m.raus;
+    const pos = bon && bon.positionen[m.index];
+    if (!pos) return;
+    const anzahl = parseInt(m.rausAnzahl, 10);
+    if (isNaN(anzahl)) return;
+    pos.rausAnzahl = Math.max(0, Math.min(pos.menge, anzahl));
   } else if (m.typ === 'naechsteNr') {
     const nr = parseInt(m.nr, 10);
     if (!(nr >= NR_MIN && nr <= NR_MAX)) return;
@@ -268,8 +295,7 @@ function behandleNachricht(m, ws) {
     testBon();
     return;
   } else if (m.typ === 'alleLeeren') {
-    state.erledigt.push(...state.offen.map(b => Object.assign(b, { erledigtUm: Date.now() })));
-    if (state.erledigt.length > 20) state.erledigt = state.erledigt.slice(-20);
+    legeAbInErledigt(state.offen);
     state.offen = [];
   } else {
     return;
